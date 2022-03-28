@@ -277,7 +277,7 @@ module UnitTests =
         ]
     Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig allTests
 
-let jsonSource = File.ReadAllText(@"C:\Users\Kevin\Desktop\dynObjectTest.json")
+let jsonSource = File.ReadAllText(@"files\dynObjectTest.json")
 
 let res = ofJson(jsonSource)
     
