@@ -2,13 +2,9 @@
 #r "nuget: Expecto, 9.0.4"
 
 open DynamicObj
-open System
 open Newtonsoft.Json
 open System.IO
-open FSharp.Control.TaskBuilder
-open System.Threading.Tasks
 open Microsoft.FSharp.Core
-open System.Reflection
 
 type JsonParser = {
     TokenType: JsonToken
