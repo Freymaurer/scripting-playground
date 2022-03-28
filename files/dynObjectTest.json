@@ -1,0 +1,40 @@
+{
+  "myLog": {
+    "Timestamp": "2022.03.28 07:45:10.00949",
+    "Request": {
+      "Path": "/api/IHelpdeskAPI/checkCaptcha",
+      "PathBase": "",
+      "Method": "POST",
+      "Host": "localhost",
+      "Port": "8085",
+      "QueryString": "",
+      "Query": null,
+      "Headers": {
+        "Connection": "close",
+        "Content-Type": "application/json; charset=UTF-8",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+        "Cookie": "ajs_anonymous_id=%22bf0866e7-3877-4d25-8805-c1b2a4b5bd71%22; isDarkmode=false",
+        "Host": "localhost:8085",
+        "Referer": "http://localhost:8080/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.109 Safari/537.36 OPR/84.0.4316.42",
+        "Origin": "http://localhost:8080",
+        "Content-Length": "16794",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "sec-ch-ua-platform": "\"Windows\"",
+        "sec-ch-ua-mobile": "?0",
+        "x-remoting-proxy": "true",
+        "sec-ch-ua": "\" Not A;Brand\";v=\"99\", \"Chromium\";v=\"98\", \"Opera\";v=\"84\""
+      },
+      "UserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.109 Safari/537.36 OPR/84.0.4316.42",
+      "ContentType": "application/json; charset=UTF-8"
+    },
+    "Response": {
+      "StatusCode": "200",
+      "Time": "00:00:14.3531003"
+    }
+  }
+}
