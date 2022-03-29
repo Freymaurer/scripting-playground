@@ -277,19 +277,141 @@ module UnitTests =
         ]
     Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig allTests
 
-let jsonSource = File.ReadAllText(@"files\dynObjectTest.json")
+let jsonSource = 
+    let s = __SOURCE_DIRECTORY__
+    let p = Path.Combine(s, @"files\dynObjectTest.json")
+    File.ReadAllText(p)
 
-let res = ofJson(jsonSource)
+// let res = ofJson(jsonSource)
     
-let jsonParsed = 
-    match res with
-    | DynObjectConverterOutput.Root root ->
-        root.print() 
-        root.toJson() 
-    | DynObjectConverterOutput.Array arr ->
-        arr
-        |> Seq.map (fun x -> x.toJson())
-        |> String.concat ","
-        |> sprintf "[%s]"
+// let jsonParsed = 
+//     match res with
+//     | DynObjectConverterOutput.Root root ->
+//         root.print() 
+//         root.toJson() 
+//     | DynObjectConverterOutput.Array arr ->
+//         arr
+//         |> Seq.map (fun x -> x.toJson())
+//         |> String.concat ","
+//         |> sprintf "[%s]"
 
-minifyJson jsonParsed = minifyJson jsonSource
+// minifyJson jsonParsed = minifyJson jsonSource
+
+type DynamicConverter() =
+    inherit JsonConverter<DynamicObj>()
+
+    override this.ReadJson(reader : JsonReader, objectType : System.Type, existingValue : DynamicObj, hasExistingValue:bool, serializer : JsonSerializer) : DynamicObj =   
+        /// The isInit parameter is necessary as the reader starts with the first value.
+        /// But every iteration thereafter we need to progress the reader to the next value, with reader.next().
+        let rec sortJsonParserArr (result: obj option) (isInit:bool) =
+            let addValueToParentList(listObj:obj option) (value:'a) =
+                /// unbox 'a does not seem to provide any benefit. When comparing output to manually created dyn object,
+                /// it still needs to be boxed to be equal.
+                let list = listObj.Value :?> obj seq |> Seq.map (fun x -> unbox<'a> x) |> List.ofSeq
+                let res = (value::list) |> Seq.ofList
+                sortJsonParserArr (Some res) false
+            let next = if isInit then true else reader.Read()
+            if next = false then 
+                result
+            else 
+                let isList = result.IsSome && result.Value :? obj seq
+                let currentJsonObj = JsonParser.create reader.TokenType (if isNull reader.Value then None else string reader.Value |> Some)
+                printfn "%A, %A" currentJsonObj.TokenType currentJsonObj.Value
+                match currentJsonObj.TokenType with
+                | JsonToken.StartObject ->
+                    let obj = Logger()
+                    if isList then
+                        let v = sortJsonParserArr (Some obj) false
+                        addValueToParentList result v.Value
+                    else
+                        sortJsonParserArr (Some obj) false
+                | JsonToken.EndObject -> 
+                    result
+                | JsonToken.StartArray ->
+                    /// Need to use Sequence to be able to use any casting to and from: obj seq <-> 'a seq
+                    let list: obj seq = Seq.empty
+                    sortJsonParserArr (Some list) false
+                | JsonToken.EndArray ->
+                    let list = result.Value :?> obj seq |> List.ofSeq |> List.rev
+                    Some list
+                | JsonToken.PropertyName ->
+                    let key = currentJsonObj.Value.Value
+                    if result.IsNone then failwith "Cannot apply property without parent dyn object."
+                    let parent = 
+                        match result.Value with
+                        | :? Logger ->
+                            let logger = result.Value :?> Logger
+                            let v = sortJsonParserArr None false
+                            logger.setProp(key, v)
+                            logger |> box
+                        | _ -> failwith "Cannot parse parent type to supported types." 
+                    sortJsonParserArr (Some parent) false
+                | JsonToken.String -> 
+                    let v = string currentJsonObj.Value.Value
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                | JsonToken.Integer -> 
+                    let v = int currentJsonObj.Value.Value
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                | JsonToken.Float -> 
+                    let v = float currentJsonObj.Value.Value
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                | JsonToken.Boolean ->
+                    let v = System.Boolean.Parse currentJsonObj.Value.Value
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                | JsonToken.Null ->
+                    let v = None
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                // TODO!
+                | JsonToken.Bytes | JsonToken.Date ->
+                    let v = string currentJsonObj.Value.Value
+                    if isList then
+                        addValueToParentList result v
+                    else
+                        Some v
+                | any -> 
+                    // printfn "CAREFUL! %A" currentJsonObj
+                    sortJsonParserArr None false
+        // let res = sortJsonParserArr(None) |> Option.get
+        // match res with
+        // | :? list<obj> as list ->
+        //     let loggerList = list |> List.map (fun x -> unbox<Logger> x)
+        //     DynObjectConverterOutput.Array loggerList
+        // | :? Logger as root ->
+        //     DynObjectConverterOutput.Root root
+        // | _ -> failwith "Could not parse Result to any supported type."
+        sortJsonParserArr None true 
+        |> Option.get
+        :?> DynamicObj
+
+    override this.WriteJson(writer : JsonWriter, value : DynamicObj, serializer : JsonSerializer) =
+        let v =
+            let settings = 
+                let s = JsonSerializerSettings()
+                s.ReferenceLoopHandling <- ReferenceLoopHandling.Serialize
+                s
+            JsonConvert.SerializeObject(value, settings)
+        writer.WriteRaw (v)
+
+let toJson(dynObj:DynamicObj) = 
+    JsonConvert.SerializeObject(dynObj, new DynamicConverter())
+
+let converterTest = JsonConvert.DeserializeObject<DynamicObj>(jsonSource, new DynamicConverter())
+
+converterTest |> print
+
+converterTest |> toJson |> minifyJson = minifyJson jsonSource
