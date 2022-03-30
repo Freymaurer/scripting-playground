@@ -270,18 +270,14 @@ let jsonSource =
 
 // ofJson jsonSource |> toJson |> minifyJson = minifyJson jsonSource
 
-let dynamicAccess(dynObject:DynamicObj, accessStr:string) =
+let dynamicAccess (dynObject:DynamicObj)  (accessStr:string) =
     let toDynArr = accessStr.Split(".")
-    printfn "dynArr = %A" toDynArr
     let rec access (ind:int) (dynArr:string []) result =
         if ind >= dynArr.Length then
-            printfn "1"
             result
         elif ind <> 0 && result = None then
-            printfn "2"
             None
         else
-            printfn "3"
             let parentObj = if ind = 0 then dynObject else box result.Value :?> DynamicObj
             let next = parentObj.TryGetValue(dynArr.[ind])
             access (ind+1) dynArr next
@@ -289,30 +285,50 @@ let dynamicAccess(dynObject:DynamicObj, accessStr:string) =
 
 open System.Text.RegularExpressions
 
-let patternTestString = """Logging {myLog.Request.Path} @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{{myLog.Response.Time}/}. Testing escaped /{curles/}."""
+/// 1. negative lookbehind: (?<!(/|\\)) -> No / or \ before {
+/// 2. must start with: {
+/// 3. capture named group 'value' : (?<value>.+?(?!(/|\\))); careful \<value> does not show as comment, better look at code.
+/// 4. group contains any number of wildcard characters except { AND }, minimum 1 but as few as possible: [^\{}]+?
+/// 5. negative lookahead: (?!(/|\\)) -> No / or \ before }
+/// 6. must end with: }
+let pattern = @"(?<!(/|\\)){(?<value>[^\{}]+?(?!(/|\\)))}"
 
-let getDynamicAccessStrings(input:string) =
-    // 1. negative lookbehind: (?<!(/|\\)) -> No / or \ before {
-    // 2. must start with: {
-    // 3. capture named group 'value' : (?<value>.+?(?!(/|\\)))
-    // 4. group contains any number of wildcard characters except { AND }, minimum 1 but as few as possible: [^\{}]+?
-    // 5. negative lookahead: (?!(/|\\)) -> No / or \ before }
-    // 6. must end with: }
-    let pattern = @"(?<!(/|\\)){(?<value>[^\{}]+?(?!(/|\\)))}"
-    Regex.Matches(input, pattern)
-    |> Seq.map (fun x ->
-        /// Only get named group value to ignore curly opening and closing brackets 
-        x.Groups.["value"].Value
-    )
-    |> Array.ofSeq
+let getDynamicAccessStrings(input:string) = Regex.Matches(input, pattern) |> Array.ofSeq    
 
-
-getDynamicAccessStrings("""Hello i am just fooling around {}""")
-
-ofJson jsonSource |> print
-
-dynamicAccess(ofJson jsonSource,"myLog.Request.Headers.Cookie")
-
+let readDynObjInFormatString(dynObj:DynamicObj,formatString:string) =
+    /// Need replacerList to store arbitrary guids and actual dynamic access values. 
+    /// The Guids are used as temporary replacements to remove escaped curly braces, without accidentally touching any inserted dynamic values.
+    let mutable replacerList: (string*string) list = []
+    let evaluator = 
+        MatchEvaluator (fun m -> 
+            let dynAccessResult = dynamicAccess (dynObj) m.Groups.["value"].Value
+            let dynAccessResultString =
+                if dynAccessResult.IsSome then 
+                    dynAccessResult.Value.ToString()
+                else
+                    "None"
+            let newGuid = System.Guid.NewGuid().ToString()
+            // save both guid and actual value in replacerList. 
+            replacerList <- (newGuid,dynAccessResultString)::replacerList
+            // return guid to replace dynamic access string
+            newGuid
+        )
+    let removeEscapedCurlyBraces(str:string) = 
+        Regex.Replace(str, @"(\\{|/{)", @"{")
+        |> fun x -> Regex.Replace(x, @"(\\}|/})", @"}")
+    let replaceTempGuids(str:string) = 
+        let mutable res = str
+        replacerList |> List.iter (fun (guid,value) -> 
+            res <- Regex.Replace(res, guid, value)
+        )
+        res
+    // replace dyn access string with random guids, stored with actual values in replacerList
+    Regex.Replace(formatString, pattern, evaluator)
+    // Update escaped curly braces to normal curly braces
+    |> removeEscapedCurlyBraces
+    // replace guids with actual dynamic access values
+    |> replaceTempGuids
+    
 module UnitTestsDynamicAccess =
     open Expecto
 
@@ -321,24 +337,24 @@ module UnitTestsDynamicAccess =
             test "Test simple dynamic access" {
                 let simpleJson = """{"myLog": {"Timestamp": "2022.03.28 07:45:10.00949","Request": {"Path": "/api/IHelpdeskAPI/checkCaptcha","PathBase": "","Method": "POST","Host": "localhost","Port": "8085","QueryString": ""}}}"""
                 let dynObjOfJson = ofJson(simpleJson)
-                let dynamicAccessPort = dynamicAccess(dynObjOfJson, "myLog.Request.Port")
+                let dynamicAccessPort = dynamicAccess dynObjOfJson  "myLog.Request.Port"
                 Expect.equal dynamicAccessPort (Some "8085") "Expected to get port value."
             }
             test "Test access string pattern with simple access string" {
                 let formatString = """{myLog.Request.Path}"""
                 let accessString = getDynamicAccessStrings(formatString) |> Array.head
-                Expect.equal accessString ("myLog.Request.Path") "Should match and return access string."
+                Expect.equal accessString.Groups.["value"].Value ("myLog.Request.Path") "Should match and return access string."
             }
             test "Test access string pattern in more complex formatting string" {
                 let formatString = """Logging {myLog.Request.Path} @ some time point."""
                 let accessString = getDynamicAccessStrings(formatString) |> Array.head
-                Expect.equal accessString ("myLog.Request.Path") "Should match and return access string."
+                Expect.equal accessString.Groups.["value"].Value ("myLog.Request.Path") "Should match and return access string."
             }
             test "Test access string pattern with multiple access string" {
                 let formatString = """Logging {myLog.Request.Path} @ {myLog.Timestamp}."""
                 let accessString = getDynamicAccessStrings(formatString)
-                Expect.equal accessString.[0] ("myLog.Request.Path") "Should match and return first access string."
-                Expect.equal accessString.[1] ("myLog.Timestamp") "Should match and return second access string."
+                Expect.equal accessString.[0].Groups.["value"].Value ("myLog.Request.Path") "Should match and return first access string."
+                Expect.equal accessString.[1].Groups.["value"].Value ("myLog.Timestamp") "Should match and return second access string."
             }
             test "Test access string pattern with escaped curly only." {
                 let formatString = """Testing escaped /{curles/}."""
@@ -355,10 +371,38 @@ module UnitTestsDynamicAccess =
                 let accessStrings = getDynamicAccessStrings(formatString)
                 printfn "%A" accessStrings
                 Expect.equal accessStrings.Length 4 "Should return 4 access strings."
-                Expect.equal accessStrings.[0] ("myLog.Request.Path") "Should match and return 'myLog.Request.Path' access string."
-                Expect.equal accessStrings.[1] ("myLog.Timestamp") "Should match and return 'myLog.Timestamp' access string."
-                Expect.equal accessStrings.[2] ("myLog.Response.StatusCode") "Should match and return 'myLog.Response.StatusCode' access string."
-                Expect.equal accessStrings.[3] ("myLog.Response.Time") "Should match and return 'myLog.Response.Time' access string."
+                Expect.equal accessStrings.[0].Groups.["value"].Value ("myLog.Request.Path") "Should match and return 'myLog.Request.Path' access string."
+                Expect.equal accessStrings.[1].Groups.["value"].Value ("myLog.Timestamp") "Should match and return 'myLog.Timestamp' access string."
+                Expect.equal accessStrings.[2].Groups.["value"].Value ("myLog.Response.StatusCode") "Should match and return 'myLog.Response.StatusCode' access string."
+                Expect.equal accessStrings.[3].Groups.["value"].Value ("myLog.Response.Time") "Should match and return 'myLog.Response.Time' access string."
+            }
+            test "Test correct escape of curly braces." {
+                let json = """{"Key": "Value"}"""
+                let formatString = """Testing escaped \{curly\} /{boys/}. And another \\{boy\\}. Now a mixed up \{curly boy/}."""
+                let dynObjOfJson = ofJson json
+                let result = """Testing escaped {curly} {boys}. And another \{boy\}. Now a mixed up {curly boy}."""
+                let readDynObjIntoFormatString = readDynObjInFormatString(dynObjOfJson,formatString)
+                Expect.equal readDynObjIntoFormatString result "readDynObjIntoFormatString should equal result."
+            }
+            test "Test if values with escaped curly braces are still escaped." {
+                let json = """{"Key": "This is my value with /{escaped/} curly braces."}"""
+                let formatString = """The following value should still contain escaped curly braces: {Key}"""
+                let dynObjOfJson = ofJson json
+                let result = """The following value should still contain escaped curly braces: This is my value with /{escaped/} curly braces."""
+                let readDynObjIntoFormatString = readDynObjInFormatString(dynObjOfJson,formatString)
+                Expect.equal readDynObjIntoFormatString result "readDynObjIntoFormatString should equal result."
+            }
+            test "Test read DynObj into complex formatString" {
+                let json = """{"myLog": {"Timestamp": "2022.03.28 07:45:10.00949","Response": {"StatusCode": "200","Time": "00:00:14.3531003"}, "Request": {"Path": "/api/IHelpdeskAPI/checkCaptcha","PathBase": "","Method": "POST","Host": "localhost","Port": "8085","QueryString": ""}}}"""
+                let formatString = """Logging "{myLog.Request.Path}" @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{time: {myLog.Response.Time}/}. Testing escaped \{curly\} /{boys/}."""
+                let dynObjOfJson = ofJson json
+                let result = """Logging "/api/IHelpdeskAPI/checkCaptcha" @ 2022.03.28 07:45:10.00949. {} Request solved for 200 {time: 00:00:14.3531003}. Testing escaped {curly} {boys}."""
+                let readDynObjIntoFormatString = readDynObjInFormatString(dynObjOfJson,formatString)
+                Expect.equal readDynObjIntoFormatString result "readDynObjIntoFormatString should equal result."
             }
         ]
     Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig allTests
+
+let formatString = """Logging "{myLog.Request.Path}" @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{time: {myLog.Response.Time}/}. Testing escaped \{curly\} /{boys/}."""
+
+readDynObjInFormatString(ofJson jsonSource, formatString)
