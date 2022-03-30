@@ -57,7 +57,7 @@ type DynamicObjConverter() =
             else 
                 let isList = result.IsSome && result.Value :? obj seq
                 let currentJsonObj = JsonParser.create reader.TokenType (if isNull reader.Value then None else string reader.Value |> Some)
-                printfn "%A, %A" currentJsonObj.TokenType currentJsonObj.Value
+                // printfn "%A, %A" currentJsonObj.TokenType currentJsonObj.Value
                 match currentJsonObj.TokenType with
                 | JsonToken.StartObject ->
                     let obj = DynamicObj()
@@ -266,6 +266,99 @@ let jsonSource =
     let p = Path.Combine(s, @"files\dynObjectTest.json")
     File.ReadAllText(p)
 
+// ofJson jsonSource |> print
+
+// ofJson jsonSource |> toJson |> minifyJson = minifyJson jsonSource
+
+let dynamicAccess(dynObject:DynamicObj, accessStr:string) =
+    let toDynArr = accessStr.Split(".")
+    printfn "dynArr = %A" toDynArr
+    let rec access (ind:int) (dynArr:string []) result =
+        if ind >= dynArr.Length then
+            printfn "1"
+            result
+        elif ind <> 0 && result = None then
+            printfn "2"
+            None
+        else
+            printfn "3"
+            let parentObj = if ind = 0 then dynObject else box result.Value :?> DynamicObj
+            let next = parentObj.TryGetValue(dynArr.[ind])
+            access (ind+1) dynArr next
+    access 0 toDynArr None
+
+open System.Text.RegularExpressions
+
+let patternTestString = """Logging {myLog.Request.Path} @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{{myLog.Response.Time}/}. Testing escaped /{curles/}."""
+
+let getDynamicAccessStrings(input:string) =
+    // 1. negative lookbehind: (?<!(/|\\)) -> No / or \ before {
+    // 2. must start with: {
+    // 3. capture named group 'value' : (?<value>.+?(?!(/|\\)))
+    // 4. group contains any number of wildcard characters except { AND }, minimum 1 but as few as possible: [^\{}]+?
+    // 5. negative lookahead: (?!(/|\\)) -> No / or \ before }
+    // 6. must end with: }
+    let pattern = @"(?<!(/|\\)){(?<value>[^\{}]+?(?!(/|\\)))}"
+    Regex.Matches(input, pattern)
+    |> Seq.map (fun x ->
+        /// Only get named group value to ignore curly opening and closing brackets 
+        x.Groups.["value"].Value
+    )
+    |> Array.ofSeq
+
+
+getDynamicAccessStrings("""Hello i am just fooling around {}""")
+
 ofJson jsonSource |> print
 
-ofJson jsonSource |> toJson |> minifyJson = minifyJson jsonSource
+dynamicAccess(ofJson jsonSource,"myLog.Request.Headers.Cookie")
+
+module UnitTestsDynamicAccess =
+    open Expecto
+
+    let allTests =
+        testList "JsonDynObjectConverter" [
+            test "Test simple dynamic access" {
+                let simpleJson = """{"myLog": {"Timestamp": "2022.03.28 07:45:10.00949","Request": {"Path": "/api/IHelpdeskAPI/checkCaptcha","PathBase": "","Method": "POST","Host": "localhost","Port": "8085","QueryString": ""}}}"""
+                let dynObjOfJson = ofJson(simpleJson)
+                let dynamicAccessPort = dynamicAccess(dynObjOfJson, "myLog.Request.Port")
+                Expect.equal dynamicAccessPort (Some "8085") "Expected to get port value."
+            }
+            test "Test access string pattern with simple access string" {
+                let formatString = """{myLog.Request.Path}"""
+                let accessString = getDynamicAccessStrings(formatString) |> Array.head
+                Expect.equal accessString ("myLog.Request.Path") "Should match and return access string."
+            }
+            test "Test access string pattern in more complex formatting string" {
+                let formatString = """Logging {myLog.Request.Path} @ some time point."""
+                let accessString = getDynamicAccessStrings(formatString) |> Array.head
+                Expect.equal accessString ("myLog.Request.Path") "Should match and return access string."
+            }
+            test "Test access string pattern with multiple access string" {
+                let formatString = """Logging {myLog.Request.Path} @ {myLog.Timestamp}."""
+                let accessString = getDynamicAccessStrings(formatString)
+                Expect.equal accessString.[0] ("myLog.Request.Path") "Should match and return first access string."
+                Expect.equal accessString.[1] ("myLog.Timestamp") "Should match and return second access string."
+            }
+            test "Test access string pattern with escaped curly only." {
+                let formatString = """Testing escaped /{curles/}."""
+                let accessString = getDynamicAccessStrings(formatString)
+                Expect.equal accessString (Array.empty) "Should match and return access string."
+            }
+            test "Test access string pattern with empty non-escaped curly only." {
+                let formatString = """Hello i am just fooling around {}"""
+                let accessString = getDynamicAccessStrings(formatString)
+                Expect.equal accessString (Array.empty) "Should match and return access string."
+            }
+            test "Test access string pattern with complext access string." {
+                let formatString = """Logging {myLog.Request.Path} @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{{myLog.Response.Time}/}. Testing escaped /{curles/}."""
+                let accessStrings = getDynamicAccessStrings(formatString)
+                printfn "%A" accessStrings
+                Expect.equal accessStrings.Length 4 "Should return 4 access strings."
+                Expect.equal accessStrings.[0] ("myLog.Request.Path") "Should match and return 'myLog.Request.Path' access string."
+                Expect.equal accessStrings.[1] ("myLog.Timestamp") "Should match and return 'myLog.Timestamp' access string."
+                Expect.equal accessStrings.[2] ("myLog.Response.StatusCode") "Should match and return 'myLog.Response.StatusCode' access string."
+                Expect.equal accessStrings.[3] ("myLog.Response.Time") "Should match and return 'myLog.Response.Time' access string."
+            }
+        ]
+    Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig allTests
