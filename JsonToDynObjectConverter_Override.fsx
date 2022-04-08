@@ -6,15 +6,6 @@ open Newtonsoft.Json
 open System.IO
 open Microsoft.FSharp.Core
 
-type JsonParser = {
-    TokenType: JsonToken
-    Value: string option
-} with
-    static member create tokenType value = {
-        TokenType = tokenType
-        Value = value
-    }
-
 /// Fixed format function.
 let format (d:DynamicObj) =
     
@@ -41,77 +32,116 @@ let print (d:DynamicObj) = printfn "%s" (d |> format)
 type DynamicObjConverter() =
     inherit JsonConverter<DynamicObj>()
 
-    override this.ReadJson(reader : JsonReader, objectType : System.Type, existingValue : DynamicObj, hasExistingValue:bool, serializer : JsonSerializer) : DynamicObj =   
+    override this.ReadJson(reader : JsonReader, objectType : System.Type, existingValue : DynamicObj, hasExistingValue:bool, serializer : JsonSerializer) : DynamicObj = 
+        // [Review]
+        // Naming: sortiert die funktion ein JsonParser array? Wenn ja, sehe ich das nicht - aber ich glaube der name passt nicht. 
+
+        // [Review answer]
+        // umbenannt in 'readJsonParserFieldToDynObj'
+        
         /// The isInit parameter is necessary as the reader starts with the first value.
         /// But every iteration thereafter we need to progress the reader to the next value, with reader.next().
-        let rec sortJsonParserArr (result: obj option) (isInit:bool) =
+        let rec readJsonParserFieldToDynObj (result: obj option) (isInit:bool) =
             let addValueToParentList(listObj:obj option) (value:'a) =
                 /// unbox 'a does not seem to provide any benefit. When comparing output to manually created dyn object,
                 /// it still needs to be boxed to be equal.
                 let list = listObj.Value :?> obj seq |> Seq.map (fun x -> unbox<'a> x) |> List.ofSeq
                 let res = (value::list) |> Seq.ofList
-                sortJsonParserArr (Some res) false
-            let next = if isInit then true else reader.Read()
+                readJsonParserFieldToDynObj (Some res) false
+            // [Review]
+            // Nitpicking: auch hier kannste die abfrage evtl schöner machen, soweit ich weiß evaluiert `||` die rechte seite nur wenn die linke false ist:
+            // let x() = printfn "LOL!"; true
+            // true || x() -> printet nix
+            // false || x() -> printet "LOL!"
+            //
+            // kannst hier also einfach if isInit || reader.Read() machen
+            //
+            // solltest du aber testen
+
+            // [Review answer]
+            // unit tests sind erfolgreich, guter Punkt!
+            let next = isInit || reader.Read()
+            // [Review]
+            // Nitpicking: next ist schon ein bool, schöner ist `if not next` oder einfach `if next` und die conditionals tauschen
+            // [Review answer]
+            // Würde ich normal zustimmen, hier war mir readability wichtig. 
+            // Und ich persönlich fand (if reader.read() = false then result) besser verständlich.
             if next = false then 
                 result
             else 
+                // [Review]
+                // An der benennung currentJsonObj siehste hier auch ncohmal, dass der typenname `JsonParser` nicht passt. ist es ein json objekt? auch nich so wirklich. Eigentlich speicherst du nur typ und value vom momentanen token. 
+                // ich würde fast sagen du brauchst den typ garnicht und kannst einfach gegen reader.TokenType matchen und reader.Value verarbeiten.
+                // [Review answer]
+                // Sehr smart, nimmt complexity raus, direkt umgesetzt.
                 let isList = result.IsSome && result.Value :? obj seq
-                let currentJsonObj = JsonParser.create reader.TokenType (if isNull reader.Value then None else string reader.Value |> Some)
-                // printfn "%A, %A" currentJsonObj.TokenType currentJsonObj.Value
-                match currentJsonObj.TokenType with
+                let tokenType = reader.TokenType
+                let tokenValue = (if isNull reader.Value then None else string reader.Value |> Some)
+                printfn "%A, %A" tokenType tokenValue
+                match tokenType with
                 | JsonToken.StartObject ->
                     let obj = DynamicObj()
                     if isList then
-                        let v = sortJsonParserArr (Some obj) false
+                        let v = readJsonParserFieldToDynObj (Some obj) false
                         addValueToParentList result v.Value
                     else
-                        sortJsonParserArr (Some obj) false
+                        readJsonParserFieldToDynObj (Some obj) false
                 | JsonToken.EndObject -> 
                     result
                 | JsonToken.StartArray ->
                     /// Need to use Sequence to be able to use any casting to and from: obj seq <-> 'a seq
                     let list: obj seq = Seq.empty
-                    sortJsonParserArr (Some list) false
+                    readJsonParserFieldToDynObj (Some list) false
                 | JsonToken.EndArray ->
                     let list = result.Value :?> obj seq |> List.ofSeq |> List.rev
                     Some list
                 | JsonToken.PropertyName ->
-                    let key = currentJsonObj.Value.Value
+                    let key = tokenValue.Value
                     if result.IsNone then failwith "Cannot apply property without parent dyn object."
                     let parent = 
                         match result.Value with
+                        // [Review]
+                        // Den cast verstehe ich nicht, was genau soll Logger sein, warum kommt das in nem generischen JsonConverter vor?
+                        // [Review answer]
+                        // Das hatte ich vergessen rauszunehmen in der fsx die du angeschaut hast. Hatte den converter nochmal extra
+                        // in eine neue .fsx gemacht, dort war der Fehler schon aufgefallen.
                         | :? DynamicObj ->
                             let logger = result.Value :?> DynamicObj
-                            let v = sortJsonParserArr None false
+                            let v = readJsonParserFieldToDynObj None false
                             logger.SetValue(key, v.Value)
                             logger |> box
                         | _ -> failwith "Cannot parse parent type to supported types." 
-                    sortJsonParserArr (Some parent) false
+                    readJsonParserFieldToDynObj (Some parent) false
                 | JsonToken.String -> 
-                    let v = string currentJsonObj.Value.Value
+                    let v = string tokenValue.Value
                     if isList then
                         addValueToParentList result v
                     else
                         Some v
                 | JsonToken.Integer -> 
-                    let v = int currentJsonObj.Value.Value
+                    let v = int tokenValue.Value
                     if isList then
                         addValueToParentList result v
                     else
                         Some v
                 | JsonToken.Float -> 
-                    let v = float currentJsonObj.Value.Value
+                    let v = float tokenValue.Value
                     if isList then
                         addValueToParentList result v
                     else
                         Some v
                 | JsonToken.Boolean ->
-                    let v = System.Boolean.Parse currentJsonObj.Value.Value
+                    let v = System.Boolean.Parse tokenValue.Value
                     if isList then
                         addValueToParentList result v
                     else
                         Some v
                 | JsonToken.Null ->
+                    // [Review]
+                    // Null handling bei json ist so ne sache. Da du eh dynamic arbeitest, kannst du das auch nutzen und 
+                    // null values einfach weg lassen, dann hast du auch kein Some/None gedöns
+                    // [Review answer]
+                    // nicht sicher was du hier genau meinst oder ich das umsetzen kann
                     let v = None
                     if isList then
                         addValueToParentList result v
@@ -119,18 +149,18 @@ type DynamicObjConverter() =
                         Some v
                 // TODO!
                 | JsonToken.Bytes | JsonToken.Date ->
-                    let v = string currentJsonObj.Value.Value
+                    let v = string tokenValue.Value
                     if isList then
                         addValueToParentList result v
                     else
                         Some v
                 | any -> 
                     // printfn "CAREFUL! %A" currentJsonObj
-                    sortJsonParserArr None false
-        let res = sortJsonParserArr(None) true |> Option.get
+                    readJsonParserFieldToDynObj None false
+        let res = readJsonParserFieldToDynObj(None) true |> Option.get
         match res with
         | :? list<obj> as list ->
-            let loggerList = list |> List.map (fun x -> unbox<DynamicObj> x)
+            let loggerList = list
             let r = DynamicObj()
             r.SetValue("root", loggerList)
             r
@@ -144,7 +174,12 @@ type DynamicObjConverter() =
                 let s = JsonSerializerSettings()
                 s.ReferenceLoopHandling <- ReferenceLoopHandling.Serialize
                 s
-            JsonConvert.SerializeObject(value, settings)
+            let hasRootArr = value.TryGetValue "root"
+            if hasRootArr.IsSome then
+                hasRootArr.Value 
+                |> fun v -> JsonConvert.SerializeObject(v, settings)
+            else
+                JsonConvert.SerializeObject(value, settings)
         writer.WriteRaw (v)
 
 let toJson(dynObj:DynamicObj) = 
@@ -152,9 +187,22 @@ let toJson(dynObj:DynamicObj) =
 
 let ofJson(jsonSource:string) = JsonConvert.DeserializeObject<DynamicObj>(jsonSource, new DynamicObjConverter())
 
+// [Review]
+// Das ist nicht generisch genug und kann zu falsch negativen ergebnissen führen, zum beispiel wenn ich eine date, die `\n` (unix) new line benutzt auf windows lese.
+// am besten ncoh alle newline characters durch System.Environment.Newline ersetzen.
+// Außerdem kannst du die newline auch einfach replacen anstatt zu splitten und dann concat (x.Replace(System.Environment.NewLine,""))
+
+// [Review - answ]
+// Guter punkt hab ich angepasst
+
 /// This function should always ONLY BE USED FOR TESTING!
 /// THIS FUNCTION KILLS ANY WHITESPACE EVEN FROM JSON VALUES!
-let minifyJson(json:string) = json.Replace(" ","").Split(System.Environment.NewLine)|> String.concat "" 
+let minifyJson(json:string) = 
+    json
+        .Replace(" ","")
+        // if i add this line, my tests break
+        // .Replace("\n",System.Environment.NewLine)
+        .Replace(System.Environment.NewLine,"") 
 
 module UnitTests = 
     open Expecto
@@ -258,6 +306,12 @@ module UnitTests =
                         | e -> false
                 Expect.isTrue print "Expected to print nested object."
             }
+            test "Root json array with simple elements" {
+                let json = minifyJson """["Ford", "BMW", "Fiat"]"""
+                let dynObjOfJson = ofJson json
+                let revertToJson = toJson dynObjOfJson
+                Expect.equal json revertToJson "Recreated Json equals json source with root level json array with simple elements."
+            }
         ]
     Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig allTests
 
@@ -265,6 +319,20 @@ let jsonSource =
     let s = __SOURCE_DIRECTORY__
     let p = Path.Combine(s, @"files\dynObjectTest.json")
     File.ReadAllText(p)
+
+open Expecto
+
+let converterTest = JsonConvert.DeserializeObject<DynamicObj>(jsonSource, new DynamicObjConverter())
+let source = minifyJson jsonSource
+let convertBack = (converterTest |> toJson |> minifyJson) 
+
+let jsonArr = """["Ford", "BMW", "Fiat"]"""
+let toDyn = JsonConvert.DeserializeObject<DynamicObj>(jsonArr, new DynamicObjConverter())
+toDyn |> print
+let convertBackArr = toDyn |> toJson
+
+Expect.equal (converterTest |> toJson |> minifyJson) (minifyJson jsonSource) ""
+
 
 // ofJson jsonSource |> print
 
