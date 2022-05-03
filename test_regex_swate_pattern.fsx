@@ -1,3 +1,5 @@
+#r "nuget: Expecto, 9.0.4"
+
 module Pattern =
 
     [<LiteralAttribute>]
@@ -29,7 +31,6 @@ module LukasPattern =
     let ontologySourcePattern = @"(?<=\()\S+:[^;)#]*(?=[\)\#])"
     let numberPattern = @"(?<=#)\d+(?=[\)\]])"
 
-
 module TestCases =
     let case1 = "Source Name"
     let case2 = "Sample Name"
@@ -44,30 +45,49 @@ module TestCases =
     let case11 = "Term Accession Number (MS:1001809#2)"
     let case12 = "Unit"
     let case13 = "Unit (#3)"
+    let case14 = "Term Accession Number ()" 
 
-//Source Name
-//Sample Name
-//Characteristics [Sample type]
-//Characteristics [biological replicate]
-//Factor [Sample type#2]
-//Parameter [biological replicate#2]
-//Data File Name
-//Term Source REF (NFDI4PSO:0000064)
-//Term Source REF (NFDI4PSO:0000064#2)
-//Term Accession Number (MS:1001809)
-//Term Accession Number (MS:1001809#2)
-//Unit
-//Unit (#3)
+module UnitTests =
+    open Expecto
+    open System.Text.RegularExpressions
 
+    let patternTests =
+        testList "Regex patterns" [
+            test "CoreNamePattern 'Source Name'" {
+                let regExMatch = Regex.Match(TestCases.case1, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value
+                Expect.equal regexValue "Source Name" ""
+            }
 
-let t1 = "1"
-let t2 = "1","2"
-let t3 = "1","2","3"
+            test "CoreNamePattern 'Characteristic [Sample type]'" {
+                let regExMatch = Regex.Match(TestCases.case3, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value.Trim()
+                Expect.equal regexValue "Characteristics" ""
+            }
 
-let matching (level:int) =
-    match level with
-    | 1 -> t1
-    | 2 -> $"{fst t2}, {snd t2}"
-    | 3 -> sprintf "%A" t3
+            test "CoreNamePattern 'Term Source REF (NFDI4PSO:0000064)'" {
+                let regExMatch = Regex.Match(TestCases.case8, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value.Trim()
+                Expect.equal regexValue "Term Source REF" ""
+            }
 
-matching 3
+            test "CoreNamePattern 'Term Accession Number (MS:1001809#2)'" {
+                let regExMatch = Regex.Match(TestCases.case11, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value.Trim()
+                Expect.equal regexValue "Term Accession Number" ""
+            }
+
+            test "CoreNamePattern 'Unit (#3)'" {
+                let regExMatch = Regex.Match(TestCases.case13, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value.Trim()
+                Expect.equal regexValue "Unit" ""
+            }
+
+            test "CoreNamePattern 'Term Accession Number ()'" {
+                let regExMatch = Regex.Match(TestCases.case14, Pattern.CoreNamePattern)
+                let regexValue = regExMatch.Value.Trim()
+                Expect.equal regexValue "Term Accession Number" ""
+            }
+        ]
+    Expecto.Tests.runTests Impl.ExpectoConfig.defaultConfig patternTests
+

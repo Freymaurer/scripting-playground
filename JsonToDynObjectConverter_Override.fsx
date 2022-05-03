@@ -474,3 +474,4 @@ module UnitTestsDynamicAccess =
 let formatString = """Logging "{myLog.Request.Path}" @ {myLog.Timestamp}. {} Request solved for {myLog.Response.StatusCode} /{time: {myLog.Response.Time}/}. Testing escaped \{curly\} /{boys/}."""
 
 readDynObjInFormatString(ofJson jsonSource, formatString)
+
