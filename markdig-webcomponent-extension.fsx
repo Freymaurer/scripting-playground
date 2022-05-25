@@ -1,19 +1,11 @@
+#r "nuget: Expecto, 9.0.4"
 #r "nuget: Markdig, 0.30.2"
-
-open Markdig
-open Markdig.Renderers.Html
-open Markdig.Syntax
 
 // https://odetocode.com/blogs/scott/archive/2020/01/23/a-custom-renderer-extension-for-markdig.aspx
 // https://github.com/arthurrump/MarkdigExtensions/blob/master/src/MarkdigExtensions.ImageAsFigure/ImageAsFigure.fs
 
-open Markdig
 open Markdig.Renderers
-open Markdig.Renderers.Html
-open Markdig.Syntax
-open Markdig.Syntax.Inlines
 open Markdig
-open Markdig.Renderers
 open Markdig.Renderers.Html
 open Markdig.Syntax
 
@@ -84,13 +76,28 @@ let pipeline =
         .UseNFDIHeader()
         .Build()
 
-let markdown = """
-# Start testing!
+// let markdown = """
+// # Start testing!
 
-This is a text with some *emphasis* :tada:
+// This is a text with some *emphasis* :tada:
 
-![Test](https://upload.wikimedia.org/wikipedia/en/9/95/Test_image.jpg)
-"""
+// ![Test](https://upload.wikimedia.org/wikipedia/en/9/95/Test_image.jpg)
+// """
 
+// let result = Markdown.ToHtml(markdown, pipeline)
+// result
+
+let markdown = """# Start testing!"""
 let result = Markdown.ToHtml(markdown, pipeline)
-result
+
+open Expecto
+
+let tests = 
+    testList "" [
+        test "test" {
+            let markdown = """# Start testing!"""
+            let result = Markdown.ToHtml(markdown, pipeline)
+            Expect.equal result $"""<nfdi-h1 id="start-testing">Start testing!</nfdi-h1>{'\010'}""" ""
+        }
+    ]
+Expecto.Tests.runTestsWithCLIArgs [] [||] tests
