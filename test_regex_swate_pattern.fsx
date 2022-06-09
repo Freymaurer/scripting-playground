@@ -6,18 +6,18 @@ module Pattern =
     let HashNumberPattern = "#\d+"
 
     [<LiteralAttribute>]
-    /// This pattern captures all characters between squared brackets (with squared brackets).
+    // This pattern captures all characters between squared brackets (with squared brackets).
     let SquaredBracketsPattern = "\[.*\]"
 
     [<LiteralAttribute>]
-    /// This pattern captures all characters between brackets (with brackets).
+    // This pattern captures all characters between brackets (with brackets).
     let BracketsPattern = "\([^\]]*\)"
 
     [<LiteralAttribute>]
     let DoubleQuotesPattern = "\"(.*?)\""
 
     [<LiteralAttribute>]
-    /// This pattern captures all input coming before an opening square bracket or normal bracket (with whitespace).
+    // This pattern captures all input coming before an opening square bracket or normal bracket (with whitespace).
     let CoreNamePattern = "^[^[(\n]*"
 
     // Hits: ENVO:01001831
