@@ -1,6 +1,5 @@
 ### 0.6.0+8dfa9e2 (Released 2022-3-22)
 * Additions:
-    * latest commit #8dfa9e2
     * [[#8dfa9e2](https://github.com/nfdi4plants/Swate/commit/8dfa9e2f0dfa9e5a42e8030adac041581d549913)] Heavily improve term insert feedback in annotation table (Issue #149, #161)
     * [[#82b896c](https://github.com/nfdi4plants/Swate/commit/82b896c152eee2b411ef8ab506b7932694144f92)] Clean up readme :shower:
     * [[#18641cd](https://github.com/nfdi4plants/Swate/commit/18641cd50a5d7854aaf2a39976479d4cda2d12e7)] Update fill reference column logic, to provide consistent results.
@@ -263,7 +262,7 @@
 * Bugfixes:
     * Unit Term Search broke due to a change in naming conventions in the stored procedures. Fixed it!
 
-### v0.1-beta - 2020-11-05
+### 0.1.0-beta - 2020-11-05
 * Release of [Minimal POC milestone](https://github.com/nfdi4plants/Swate/milestone/1?closed=1). Rough feature set:
     * Update advanced term search to use stored procedure introduced in 0.0.2-alpha.
     * Bugfixes:
